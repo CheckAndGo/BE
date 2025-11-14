@@ -1,0 +1,33 @@
+# Compiled JavaScript files
+lib/**/*.js
+lib/**/*.js.map
+
+# TypeScript v1 declaration files
+typings/
+
+# Node.js dependency directory
+node_modules/
+*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+firebase-debug.log
+firestore-debug.log
+
+# Firebase build output
+lib/
+.eslintcache
+
+# Mac system files
+.DS_Store
+
+# Python virtual environments (for ai/)
+ai/.venv/
+ai/__pycache__/
+ai/*.pyc
+
+# Local environment files
+.env
+*.local
