@@ -24,6 +24,18 @@ type ChecklistDoc = {
   items: ChecklistItem[];
 };
 
+// 드롭다운/바텀시트 전용 DTO
+export type TripSelectorItemDTO = {
+  id: string;
+  title: string;
+  country: string;
+  city: string;
+  startDate: string;   // "YYYY-MM-DD"
+  endDate: string;     // "YYYY-MM-DD"
+  flagEmoji: string;   // 없으면 "" 로 내려줌
+};
+
+
 // 프론트로 내려줄 최종 DTO
 export type TripCardDTO = {
   id: string;
@@ -136,6 +148,53 @@ export function registerTripRoutes(app: Express) {
           console.error("[POST /debug/seed-trips] error:", err);
           return res.status(500).json({ error: "Failed to seed trips" });
         }
+    });
+
+    // GET /trips/selector : 여행 선택 모달/드롭다운용 목록
+    //  - 기본 status=active
+    //  - startDate 오름차순 정렬
+    //  - limit 기본 20
+    app.get("/trips/selector", async (req: Request, res: Response) => {
+      try {
+        const rawLimit = req.query.limit;
+        const limit =
+          typeof rawLimit === "string" ? parseInt(rawLimit, 10) || 20 : 20;
+
+        const statusParam = req.query.status;
+        const status =
+          typeof statusParam === "string" && statusParam.length > 0
+            ? statusParam
+            : "active";
+
+        let query = db
+          .collection("trips")
+          .orderBy("startDate", "asc")
+          .limit(limit);
+
+        if (status) {
+          query = query.where("status", "==", status);
+        }
+
+        const snapshot = await query.get();
+
+        const items: TripSelectorItemDTO[] = snapshot.docs.map((doc) => {
+          const data = doc.data() as TripDoc;
+          return {
+            id: doc.id,
+            title: data.title,
+            country: data.country,
+            city: data.city,
+            startDate: data.startDate,
+            endDate: data.endDate,
+            flagEmoji: data.flagEmoji ?? "",
+          };
+        });
+
+        return res.status(200).json({ items });
+      } catch (err) {
+        console.error("[GET /trips/selector] error:", err);
+        return res.status(500).json({ error: "Internal Server Error" });
+      }
     });
 
     // GET /trips?limit=10&status=active : 홈 카드
