@@ -110,7 +110,7 @@
 //   });
 // }
 
-// src/routes/ai.ts
+
 import type { Express, Request, Response } from "express";
 import { db } from "../firebase";
 
