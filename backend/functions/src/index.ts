@@ -8,6 +8,7 @@ import { onRequest } from "firebase-functions/v2/https";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerTripRoutes } from "./routes/trips";
 import { registerCalendarRoutes } from "./routes/calendar";
+import { registerAiRoutes } from "./routes/ai"; 
 
 // --- Express 앱 설정 ---
 const app = express();
@@ -18,6 +19,7 @@ app.use(express.json());
 registerAuthRoutes(app);
 registerTripRoutes(app);
 registerCalendarRoutes(app);
+registerAiRoutes(app);
 
 // --- Cloud Functions Export ---
 export const api = onRequest(
