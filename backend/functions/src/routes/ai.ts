@@ -1,120 +1,9 @@
-// import type { Express, Request, Response } from "express";
-// import { db } from "../firebase";
-
-// // LLM용으로 뽑아낼 trip 문서 타입 (trips 컬렉션 구조와 맞추기)
-// type TripForAiDoc = {
-//   title: string;
-//   country: string;
-//   city: string;
-//   startDate: string;
-//   endDate: string;
-//   status?: "active" | "archived" | "deleted";
-//   travelerCount?: number;
-//   budget?: number;
-//   theme?: string;
-//   purpose?: string;
-//   lodgingTypes?: string[];
-//   transportModes?: string[];
-// };
-
-// type GenerateChecklistRequestBody = {
-//   tripId?: string;
-// };
-
-// // LLM으로 넘길 최종 페이로드 타입 payload (참고용)
-// export type ChecklistGeneratePayload = {
-//   title: string;
-//   country: string;
-//   city: string;
-//   startDate: string;
-//   endDate: string;
-//   travelerCount: number;
-//   budget: number | null;
-//   theme: string | null;
-//   purpose: string | null;
-//   lodgingTypes: string[];
-//   transportModes: string[];
-//   status: string;
-// };
-
-
-// // 라우트 등록 함수
-// export function registerAiRoutes(app: Express) {
-//   /**
-//    * POST /ai/checklist/generate
-//    * Body: { "tripId": "trp_123" }
-//    *
-//    * 1) trips/{tripId} 문서 조회
-//    * 2) LLM에 넘길 JSON(payload) 생성
-//    * 3) (지금은) payload 를 그대로 응답으로 내려줌
-//    *    → 나중에 이 자리에서 LLM HTTP 호출 붙이면 됨
-//    */
-//   app.post("/ai/checklist/generate", async (req: Request, res: Response) => {
-//     try {
-//       const { tripId } = req.body as GenerateChecklistRequestBody;
-
-//       if (!tripId) {
-//         return res.status(400).json({ error: "tripId 는 필수입니다." });
-//       }
-
-//       const docRef = db.collection("trips").doc(tripId);
-//       const snap = await docRef.get();
-
-//       if (!snap.exists) {
-//         return res.status(404).json({ error: "Trip not found" });
-//       }
-
-//       const trip = snap.data() as TripForAiDoc;
-
-//       // LLM에 넘길 JSON 형식으로 가공
-//       const payload: ChecklistGeneratePayload = {
-//         title: trip.title,
-//         country: trip.country,
-//         city: trip.city,
-//         startDate: trip.startDate,
-//         endDate: trip.endDate,
-//         travelerCount: trip.travelerCount ?? 1,
-//         budget: trip.budget ?? null,
-//         theme: trip.theme ?? null,
-//         purpose: trip.purpose ?? null,
-//         lodgingTypes: trip.lodgingTypes ?? [],
-//         transportModes: trip.transportModes ?? [],
-//         status: trip.status ?? "active",
-//       };
-
-//       // 🔻 여기서 실제 LLM HTTP 호출을 붙이면 됨
-//       // 예시:
-//       //
-//       // const resp = await fetch(process.env.CHECKLIST_LLM_URL!, {
-//       //   method: "POST",
-//       //   headers: { "Content-Type": "application/json" },
-//       //   body: JSON.stringify(payload),
-//       // });
-//       // const llmResult = await resp.json();
-//       //
-//       // return res.status(200).json({
-//       //   tripId,
-//       //   payload,
-//       //   checklist: llmResult.checklist,
-//       // });
-
-//       // 일단은 payload만 응답으로 내려서 Postman / 프론트에서 확인
-//       return res.status(200).json({
-//         tripId,
-//         payload,
-//       });
-//     } catch (err) {
-//       console.error("[POST /ai/checklist/generate] error:", err);
-//       return res.status(500).json({ error: "Internal Server Error" });
-//     }
-//   });
-// }
-
-
 import type { Express, Request, Response } from "express";
 import { db } from "../firebase";
 
-// LLM용으로 뽑아낼 trip 문서 타입 (trips 컬렉션 구조와 맞추기)
+// -------------------------------------------------------------------
+// Firestore에서 trips 컬렉션에 들어있는 문서 타입
+// -------------------------------------------------------------------
 type TripForAiDoc = {
   title: string;
   country: string;
@@ -134,43 +23,70 @@ type GenerateChecklistRequestBody = {
   tripId?: string;
 };
 
-// LLM으로 넘길 최종 페이로드 타입 payload
-export type ChecklistGeneratePayload = {
-  title: string;
-  country: string;
-  city: string;
-  startDate: string;
-  endDate: string;
-  travelerCount: number;
-  budget: number | null;
-  theme: string | null;
-  purpose: string | null;
-  lodgingTypes: string[];
-  transportModes: string[];
-  status: string;
+// -------------------------------------------------------------------
+// 1) AI 서버로 보낼 Payload 타입 (AI 팀 ChecklistRequest 스키마와 맞춤)
+// -------------------------------------------------------------------
+type AiRequestPayload = {
+  tripId: string;
+  locale: string;
+  destination: {
+    country: string;
+    city: string;
+  };
+  period: {
+    startDate: string;
+    endDate: string;
+    nights: number;
+    days: number;
+  };
+  travelers: {
+    count: number;
+  };
+  budget: {
+    rawInput: string;
+  } | null;
+  purpose: string;
+  lodging: {
+    type: string;
+  } | null;
+  transportation: {
+    type: string;
+  } | null;
 };
 
-// ===== 아래 타입들은 "나중에" LLM 결과를 체크리스트에 저장할 때 쓸 예정 =====
-
-// LLM 이 돌려주는 raw 형식
+// -------------------------------------------------------------------
+// 2) AI가 돌려주는 응답 타입들 (느슨하게 정의)
+// -------------------------------------------------------------------
 type AiChecklistItemRaw = {
   id?: string;
   title: string;
   checked?: boolean;
-  important?: boolean; 
+  important?: boolean; // LLM이 직접 줄 수도 있음 (옵션)
+  priority?: "LOW" | "MEDIUM" | "HIGH";
+  requiresVerification?: boolean;
+};
+
+type AiChecklistCategoryBlock = {
+  category?: string;
+  items?: AiChecklistItemRaw[];
 };
 
 type AiChecklistResponse = {
   tripId?: string;
-  items: AiChecklistItemRaw[];
+  items?: AiChecklistItemRaw[];
+  checklist?: AiChecklistCategoryBlock[];
+  // 그 외 progress, message 등 들어올 수 있음 → any로 무시
+  [key: string]: any;
 };
 
-// 우리가 DB/프론트에서 쓰는 ChecklistItem
+// -------------------------------------------------------------------
+// 3) 우리가 DB/프론트에서 쓰는 체크리스트 타입
+// -------------------------------------------------------------------
 type ChecklistItem = {
   id: string;
   title: string;
   checked: boolean;
-  important?: boolean; 
+  important?: boolean;
 };
 
 type ChecklistDoc = {
@@ -178,16 +94,19 @@ type ChecklistDoc = {
   items: ChecklistItem[];
 };
 
-// 라우트 등록 함수
+// -------------------------------------------------------------------
+// 라우트 등록
+// -------------------------------------------------------------------
 export function registerAiRoutes(app: Express) {
   /**
    * POST /ai/checklist/generate
    * Body: { "tripId": "trp_123" }
    *
    * 1) trips/{tripId} 문서 조회
-   * 2) LLM에 넘길 JSON(payload) 생성
-   * 3) (지금은) payload 만 응답으로 내려줌
-   *    → 나중에 주석된 LLM HTTP 호출 코드로 교체하면 됨
+   * 2) AI 요청용 payload(AiRequestPayload) 생성
+   * 3) AI 서버(/api/v1/llm/boost) 호출
+   * 4) 응답을 평탄화해서 checklists 컬렉션에 저장/덮어쓰기
+   * 5) { tripId, summary, items } 형태로 프론트에 응답
    */
   app.post("/ai/checklist/generate", async (req: Request, res: Response) => {
     try {
@@ -197,7 +116,7 @@ export function registerAiRoutes(app: Express) {
         return res.status(400).json({ error: "tripId 는 필수입니다." });
       }
 
-      // 1) trip 문서 조회
+      // 1) trips/{tripId} 문서 조회
       const docRef = db.collection("trips").doc(tripId);
       const snap = await docRef.get();
 
@@ -207,44 +126,57 @@ export function registerAiRoutes(app: Express) {
 
       const trip = snap.data() as TripForAiDoc;
 
-      // 2) LLM에 넘길 JSON 형식으로 가공
-      const payload: ChecklistGeneratePayload = {
-        title: trip.title,
-        country: trip.country,
-        city: trip.city,
-        startDate: trip.startDate,
-        endDate: trip.endDate,
-        travelerCount: trip.travelerCount ?? 1,
-        budget: trip.budget ?? null,
-        theme: trip.theme ?? null,
-        purpose: trip.purpose ?? null,
-        lodgingTypes: trip.lodgingTypes ?? [],
-        transportModes: trip.transportModes ?? [],
-        status: trip.status ?? "active",
+      // 2) AI 서버 스펙에 맞게 payload 구성
+      const startDateObj = new Date(trip.startDate);
+      const endDateObj = new Date(trip.endDate);
+      const diffTime = Math.abs(endDateObj.getTime() - startDateObj.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // 여행 "일" 수
+      const nights = diffDays - 1;
+
+      const payload: AiRequestPayload = {
+        tripId,
+        locale: "ko",
+        destination: {
+          country: trip.country,
+          city: trip.city,
+        },
+        period: {
+          startDate: trip.startDate,
+          endDate: trip.endDate,
+          nights,
+          days: diffDays,
+        },
+        travelers: {
+          count: trip.travelerCount ?? 1,
+        },
+        budget: trip.budget != null ? { rawInput: `${trip.budget}원` } : null,
+        purpose: trip.purpose ?? "관광",
+        lodging:
+          trip.lodgingTypes && trip.lodgingTypes.length > 0
+            ? { type: trip.lodgingTypes[0] }
+            : null,
+        transportation:
+          trip.transportModes && trip.transportModes.length > 0
+            ? { type: trip.transportModes[0] }
+            : null,
       };
 
-      // 🔹 지금은 간단 테스트용: payload만 프론트/포스트맨으로 돌려줌
-      //    → 여기까지만 있어도 Postman 으로 end-to-end 흐름 확인 가능
-      return res.status(200).json({
-        tripId,
-        payload,
-      });
+      // 3) AI 서버 호출
+      //    - env 에 CHECKLIST_AI_URL 이 설정되어 있으면 그걸 쓰고,
+      //    - 아니면 로컬 기본값(http://127.0.0.1:8000/api/v1/llm/boost)을 사용
+      const aiUrl =
+        process.env.CHECKLIST_AI_URL ??
+        "http://127.0.0.1:8000/api/v1/llm/boost";
 
-      /* 
-      🔻🔻🔻  여기부터는 "나중에" LLM 서버 URL 나오면 사용할 코드 예시 🔻🔻🔻
+      const aiToken =
+        process.env.CHECKLIST_AI_TOKEN ?? "test_token"; // 필요 없으면 Authorization 헤더 제거해도 됨
 
-      const aiUrl = process.env.CHECKLIST_AI_URL;
-      if (!aiUrl) {
-        console.error("Missing CHECKLIST_AI_URL env");
-        return res
-          .status(500)
-          .json({ error: "CHECKLIST_AI_URL 환경변수가 없습니다." });
-      }
-
-      // 3) LLM HTTP API 호출
       const resp = await fetch(aiUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${aiToken}`,
+        },
         body: JSON.stringify(payload),
       });
 
@@ -258,23 +190,42 @@ export function registerAiRoutes(app: Express) {
 
       const aiJson = (await resp.json()) as AiChecklistResponse;
 
-      if (!aiJson.items || !Array.isArray(aiJson.items)) {
-        console.error("AI response malformed:", aiJson);
-        return res
-          .status(502)
-          .json({ error: "AI 응답 형식이 올바르지 않습니다." });
+      // 4) 응답에서 items 평탄화
+      let rawItems: AiChecklistItemRaw[] = [];
+
+      if (Array.isArray(aiJson.items)) {
+        rawItems = aiJson.items;
+      } else if (Array.isArray(aiJson.checklist)) {
+        rawItems = aiJson.checklist.flatMap((block) => block.items ?? []);
       }
 
-      // 4) LLM 응답 → ChecklistItem 배열로 normalize
+      if (!rawItems.length) {
+        console.error("AI response has no items:", aiJson);
+        return res
+          .status(502)
+          .json({ error: "AI 응답에 checklist 항목이 없습니다." });
+      }
+
       const baseTs = Date.now();
       let counter = 0;
 
-      const items: ChecklistItem[] = aiJson.items
+      const items: ChecklistItem[] = rawItems
         .filter((raw) => raw.title && raw.title.trim())
         .map((raw) => {
           const id = raw.id ?? `item_${baseTs}_${++counter}`;
           const checked = raw.checked ?? false;
-          const important = raw.important ?? false; // ✅ 기본값 false
+
+          // 🔥 중요도 계산 로직:
+          // 1) LLM이 important를 명시하면 그 값 사용
+          // 2) 없으면 priority === "HIGH" 이거나 requiresVerification === true 면 중요(true)
+          let important: boolean;
+          if (typeof raw.important === "boolean") {
+            important = raw.important;
+          } else {
+            important =
+              raw.priority === "HIGH" ||
+              raw.requiresVerification === true;
+          }
 
           return {
             id,
@@ -284,7 +235,7 @@ export function registerAiRoutes(app: Express) {
           };
         });
 
-      // 5) checklists 컬렉션에 upsert (기존 있으면 덮어쓰기)
+      // 5) checklists 컬렉션 upsert (기존 있으면 덮어쓰기)
       const existingSnap = await db
         .collection("checklists")
         .where("tripId", "==", tripId)
@@ -305,11 +256,11 @@ export function registerAiRoutes(app: Express) {
             tripId,
             items,
           } as ChecklistDoc,
-          { merge: false } // 통째로 덮어쓰기
+          { merge: false }
         );
       }
 
-      // 진행률 계산
+      // 진행률 계산 (현재는 checked 기준)
       const total = items.length;
       const done = items.filter((i) => i.checked).length;
       const progress = total > 0 ? done / total : 0;
@@ -324,13 +275,9 @@ export function registerAiRoutes(app: Express) {
         },
         items,
       });
-
-      🔺🔺🔺 여기까지 LLM 연동용 코드, URL 나오면 위의 return 을 사용하도록 바꾸면 됨 🔺🔺🔺
-      */
     } catch (err) {
       console.error("[POST /ai/checklist/generate] error:", err);
       return res.status(500).json({ error: "Internal Server Error" });
     }
   });
 }
-
